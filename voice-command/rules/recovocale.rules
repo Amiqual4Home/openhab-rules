@@ -1,0 +1,120 @@
+import org.openhab.core.library.types.*
+import org.openhab.core.persistence.*
+import org.openhab.model.script.actions.*
+import java.util.*
+
+
+rule VoiceCommand
+when 
+	Item VoiceCommand received update
+then
+
+var String cmd = VoiceCommand.state.toString.toLowerCase.replace("é" , "e").replace("è" , "e").replace("ê" , "e")
+.replace("à" , "a").replace("'" , " ").remove(".")
+
+var String place=""
+
+for (s : cmd.splitByWholeSeparator(" ")){
+	if (place.isEmpty()){
+	place = transform("MAP" , "reco_room.map", s)
+	}
+	
+}
+
+if (place.isEmpty){
+	place="Appartement"
+}
+
+postUpdate(VoiceCommand_loc , place +":"+cmd)
+
+
+end
+
+
+rule VoiceCommand_loc
+when
+	Item VoiceCommand_loc received update
+then
+
+var String cmd = VoiceCommand_loc.state.toString.replace("é" , "e").replace("è" , "e").replace("ê" , "e")
+.replace("à" , "a").replace("'" , " ").remove(".")
+var String place = ""
+var String deviceType = ""
+var String device= ""
+var String action = ""
+var String command = ""
+var int step = 1
+place = cmd.splitByWholeSeparator(":").get(0)
+
+cmd = cmd.remove(place+":")
+
+for (s : cmd.splitByWholeSeparator(" ")){
+	if (deviceType.isEmpty()){
+	deviceType = transform("MAP" , "reco_device.map" , s)
+	}
+}
+
+if (deviceType.contains(".")){
+	device = deviceType.splitByWholeSeparator(".").get(1)
+	deviceType = deviceType.splitByWholeSeparator(".").get(0)
+}
+
+if (!deviceType.isEmpty()){
+	for (s : cmd.splitByWholeSeparator(" ")){
+	if (action.isEmpty()){
+	action = transform("MAP" , "reco_action_" + deviceType  + ".map", s)
+	}
+}
+}
+
+
+logDebug("RECO" , "PLACE : " + place + " CMD : " + cmd + " DEVICETYPE : " + deviceType + "DEVICE : " + device + 
+" ACTION : " + action)
+
+switch (deviceType) {
+	case null : {
+		logError("RECOVOCALE" , "DeviceType is null")
+		return null
+	}
+	default : {
+	if (!deviceType.isEmpty() || !action.isEmpty()){
+		
+		val items=All.allMembers.filter(i | i.groupNames.contains(place) && i.groupNames.contains(deviceType))
+		
+		if (!device.isEmpty()){
+			items=All.allMembers.filter(i | i.name.equals(device))
+		} else if (place.equals("Appartement")){
+			items=All.allMembers.filter(i | i.groupNames.contains(deviceType))
+		}
+
+
+		
+	items.forEach(i | 
+		{
+			switch (action){
+			case action.startsWith("INCREASE") : {
+				step = Integer::parseInt(action.splitByWholeSeparator("_").get(1))
+				if (i.state == Undefined || i.state == Uninitialized){
+					command = ""+(2*step)
+				} else {
+				command= "" + ((i.state as DecimalType) + step)
+				}
+				}
+			case action.startsWith("DECREASE") : {
+				step = Integer::parseInt(action.splitByWholeSeparator("_").get(1))
+				if (i.state == Undefined || i.state == Uninitialized){
+					command = ""+(2*step)
+				} else {
+				command= "" + ((i.state as DecimalType) - step)
+				}
+				}
+			default : command=action
+						}
+			i.sendCommand(command)
+			
+		}
+	)
+}}
+}
+
+end
